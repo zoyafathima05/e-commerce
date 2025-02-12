@@ -1,0 +1,121 @@
+backend//
+require("dotenv").config();
+const express = require("express");
+const mongoose = require("mongoose");
+const cors = require("cors");
+const http = require("http");
+const { Server } = require("socket.io");
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: "*" } });
+
+app.use(cors());
+app.use(express.json());
+
+// Connect to MongoDB
+mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log("MongoDB Connected"))
+  .catch(err => console.log(err));
+
+// Product Schema
+const ProductSchema = new mongoose.Schema({
+  name: String,
+  price: Number,
+  stock: Number,
+  demand: Number,
+});
+
+const Product = mongoose.model("Product", ProductSchema);
+
+// Pricing Algorithm
+const adjustPrice = async () => {
+  const products = await Product.find();
+  products.forEach(async (product) => {
+    let newPrice = product.price;
+
+    if (product.demand > 50) newPrice *= 1.1; // Increase price by 10% if high demand
+    if (product.stock < 10) newPrice *= 1.2; // Increase price if low stock
+    if (product.stock > 50) newPrice *= 0.9; // Decrease price if high stock
+
+    product.price = parseFloat(newPrice.toFixed(2));
+    await product.save();
+    io.emit("price-update", { id: product._id, newPrice: product.price });
+  });
+};
+
+// Dynamic Pricing every 30 seconds
+setInterval(adjustPrice, 30000);
+
+// Get Products API
+app.get("/products", async (req, res) => {
+  const products = await Product.find();
+  res.json(products);
+});
+
+server.listen(5000, () => console.log("Server running on port 5000"));
+
+//frontend
+module.exports = {
+  content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+  theme: { extend: {} },
+  plugins: [],
+};
+module.exports = {
+  content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+  theme: { extend: {} },
+  plugins: [],
+};
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+import { useEffect, useState } from "react";
+import axios from "axios";
+import { io } from "socket.io-client";
+
+const API_URL = "http://localhost:5000";
+
+export default function ProductList() {
+  const [products, setProducts] = useState([]);
+  const socket = io(API_URL);
+
+  useEffect(() => {
+    axios.get(`${API_URL}/products`).then((res) => setProducts(res.data));
+
+    socket.on("price-update", ({ id, newPrice }) => {
+      setProducts((prevProducts) =>
+        prevProducts.map((product) =>
+          product._id === id ? { ...product, price: newPrice } : product
+        )
+      );
+    });
+
+    return () => socket.disconnect();
+  }, []);
+
+  return (
+    <div className="container mx-auto mt-10 p-5">
+      <h1 className="text-2xl font-bold">🛒 Dynamic Pricing Store</h1>
+      <div className="grid grid-cols-3 gap-4 mt-5">
+        {products.map((product) => (
+          <div key={product._id} className="border p-4 rounded shadow">
+            <h2 className="text-lg font-semibold">{product.name}</h2>
+            <p className="text-green-600 text-xl">${product.price}</p>
+            <p className="text-sm">Stock: {product.stock}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+import ProductList from "./ProductList";
+
+function App() {
+  return (
+    <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+      <ProductList />
+    </div>
+  );
+}
+
+export default App;
